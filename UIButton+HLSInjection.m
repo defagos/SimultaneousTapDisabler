@@ -1,5 +1,5 @@
 //
-//  UIResponder+HLSInjection.m
+//  UIButton+HLSInjection.m
 //  nut
 //
 //  Created by Samuel Défago on 3/8/11.
@@ -16,8 +16,8 @@ static NSString * const kWrapperDownPrefix = @"hls_wrapper_down_";
 static NSString * const kWrapperUpPrefix = @"hls_wrapper_up_";
 
 // No threading issues here, UIKit is not to be used concurrently
-static UIControl *s_currentControl;
-static NSMutableSet *s_inhibitedControls;
+static UIButton *s_currentButton;
+static NSMutableSet *s_inhibitedButtons;
 
 // Original implementation of the methods we swizzle
 static IMP s_initWithFrame$Imp;
@@ -42,27 +42,27 @@ static void wrapperTouchUpActionImp(id self, SEL sel, id sender);
 static void callWrappedAction(id self, SEL sel, id sender);
 
 #pragma mark -
-#pragma mark UIControl (HLSInjectionPrivate) interface
+#pragma mark UIButton (HLSInjectionPrivate) interface
 
 /** 
- * The code works as follows: We replace the usual UIControl event / target methods by wrappers using swizzling (the
+ * The code works as follows: We replace the usual UIButton event / target methods by wrappers using swizzling (the
  * implementations we replace are still called internally, the original behavior is therefore preserved). To track touch
  * events (touch up and down events), we then register two "sentinel" actions:
  *   - touch down event sentinel (must stay the first action in the list of touch down actions): To start tracking a 
- *     control if none was currently active. If a control is already active, any control receiving a touch down event 
+ *     button if none was currently active. If a button is already active, any button receiving a touch down event 
  *     is marked as inhibited, and will remain so until this flag is removed (see below)
  *   - touch up event sentinel (must stay the last action in the list of touch up actions): To strop tracking the currently 
- *     active control
+ *     active button
  * To be able to track touch up / down events added by the user, the addTarget:action:forControlEvents: method is
  * also swizzled to register a wrapper for the action, instead of the action itself. This wrapper simply executes the 
- * original action if the control is active, but immediately returns if the control has been inhibited. The other 
+ * original action if the button is active, but immediately returns if the button has been inhibited. The other 
  * target / action methods are swizzled as well to make the injection invisible externally.
  *
- * When a control is tapped but no other one is the currently active one, all controls which were marked as inhibited 
- * are reset. We identify such inhibited controls by storing them into a set. To avoid retaining controls unnecessarily, 
+ * When a button is tapped but no other one is the currently active one, all buttons which were marked as inhibited 
+ * are reset. We identify such inhibited buttons by storing them into a set. To avoid retaining buttons unnecessarily, 
  * this set stores weak references by wrapping object pointers into NSValue objects.
  */
-@interface UIControl (HLSInjectionPrivate)
+@interface UIButton (HLSInjectionPrivate)
 
 - (id)swizzledInitWithFrame:(CGRect)frame;
 - (id)swizzledInitWithCoder:(NSCoder *)aDecoder;
@@ -75,16 +75,16 @@ static void callWrappedAction(id self, SEL sel, id sender);
 @end
 
 #pragma mark -
-#pragma mark UIControl (HLSInjection) implementation
+#pragma mark UIButton (HLSInjection) implementation
 
-@implementation UIControl (HLSInjection)
+@implementation UIButton (HLSInjection)
 
 #pragma mark Class methods
 
 + (void)injectQuasiSimultaneousTapsDisabler
 {
     // Test if already injected
-    if (s_inhibitedControls) {
+    if (s_inhibitedButtons) {
         return;
     }
     
@@ -118,21 +118,21 @@ static void callWrappedAction(id self, SEL sel, id sender);
                     (IMP)sentinelTouchUpActionImp,
                     "v@:@");    
     
-    // Set for tracking inhibited controls
-    s_inhibitedControls = [[NSMutableSet alloc] init];
+    // Set for tracking inhibited buttons
+    s_inhibitedButtons = [[NSMutableSet alloc] init];
 }
 
 @end
 
 #pragma mark -
-#pragma mark UIControl (HLSInjectionPrivate) implementation
+#pragma mark UIButton (HLSInjectionPrivate) implementation
 
-@implementation UIControl (HLSInjectionPrivate)
+@implementation UIButton (HLSInjectionPrivate)
 
 #pragma mark Methods injected by swizzling
 
 - (id)swizzledInitWithFrame:(CGRect)frame
-{    
+{   
     // Call the original implementation
     if ((self = (*s_initWithFrame$Imp)(self, @selector(initWithFrame:), frame))) {
         [self addSentinelActions];
@@ -153,7 +153,7 @@ static void callWrappedAction(id self, SEL sel, id sender);
 {
     // Register action wrappers for touch down actions (if any)
     UIControlEvents touchDownFlags = UIControlEventTouchDown | UIControlEventTouchDownRepeat;
-    if (controlEvents & touchDownFlags) {
+    if (controlEvents & touchDownFlags) {        
         // A target has been given; the most natural location where to insert the wrapper action is the target class itself (where the non-wrapped 
         // action must have already been defined)
         Class class;
@@ -161,10 +161,10 @@ static void callWrappedAction(id self, SEL sel, id sender);
             class = [target class];
         }
         // If the target is nil, then the message is sent along the responder chain until a responder handles it (see UIControl documentation). To be
-        // able to reach our wrapper first, we add it as early as possible in the responder chain (i.e. in UIControl). We will then use it to send
+        // able to reach our wrapper first, we add it as early as possible in the responder chain (i.e. in UIButton). We will then use it to send
         // the original action along the responder chain
         else {
-            class = [UIControl class];
+            class = [UIButton class];
         }
         
         // Wrapper name is simply original name with prefix
@@ -175,7 +175,7 @@ static void callWrappedAction(id self, SEL sel, id sender);
         class_addMethod(class,
                         wrapperTouchDownActionSel,
                         (IMP)wrapperTouchDownActionImp,
-                        "v@:@");            // Same prototype as action, i.e. - (void)methodName:(id)sender
+                        "v@:@");            // Same prototype as action, i.e. - (void)methodName:(id)sender 
         
         // Register the new target / action
         (*s_addTarget$action$forControlEvents$Imp)(self, 
@@ -198,16 +198,16 @@ static void callWrappedAction(id self, SEL sel, id sender);
             class = [target class];
         }
         // If the target is nil, then the message is sent along the responder chain until a responder handles it (see UIControl documentation). To be
-        // able to reach our wrapper first, we add it as early as possible in the responder chain (i.e. in UIControl). We will then use it to send
+        // able to reach our wrapper first, we add it as early as possible in the responder chain (i.e. in UIButton). We will then use it to send
         // the original action along the responder chain        
         else {
-            class = [UIControl class];
+            class = [UIButton class];
         }
         
         // Wrapper name is simply original name with prefix
         NSString *wrapperTouchUpActionName = [kWrapperUpPrefix stringByAppendingString:[NSString stringWithUTF8String:sel_getName(action)]];
         
-        // Create the method dynamically and add it to the UIControl class
+        // Create the method dynamically and add it to the target class
         SEL wrapperTouchUpActionSel = sel_registerName([wrapperTouchUpActionName UTF8String]);
         class_addMethod(class,
                         wrapperTouchUpActionSel,
@@ -338,38 +338,32 @@ static void callWrappedAction(id self, SEL sel, id sender);
 
 static void swizzleSelector(Class class, SEL origSel, SEL newSel)
 {
-    Method origMethod = class_getInstanceMethod(class, origSel);
     Method newMethod = class_getInstanceMethod(class, newSel);
-    if (class_addMethod(class, origSel, method_getImplementation(newMethod), method_getTypeEncoding(newMethod))) {
-        class_replaceMethod(class, origSel, method_getImplementation(origMethod), method_getTypeEncoding(origMethod));
-    }
-    else {
-        method_exchangeImplementations(origMethod, newMethod);
-    }
+    class_replaceMethod(class, origSel, method_getImplementation(newMethod), method_getTypeEncoding(newMethod));
 }
 
 #pragma mark Sentinel action implementations
 
 static void sentinelTouchDownActionImp(id self, SEL sel, id sender)
 {
-    // Other control pressed while one is active. Inhibit
-    if (s_currentControl && s_currentControl != self) {
+    // Other button pressed while one is active. Inhibit
+    if (s_currentButton && s_currentButton != self) {
         // Store a weak ref to the object using an NSValue
-        [s_inhibitedControls addObject:[NSValue valueWithPointer:self]];
+        [s_inhibitedButtons addObject:[NSValue valueWithPointer:self]];
         return;
     }
     
-    // Cleanup inhibited list; some controls might not have had the time to unflag them in some situations
-    [s_inhibitedControls removeAllObjects];
+    // Cleanup inhibited list; some buttons might not have had the time to unflag themselves in some situations
+    [s_inhibitedButtons removeAllObjects];
     
-    s_currentControl = self;
+    s_currentButton = self;
 }
 
 static void sentinelTouchUpActionImp(id self, SEL sel, id sender)
 {
-    // Last event; if current control, done protecting it
-    if (s_currentControl == self) {
-        s_currentControl = nil;
+    // Last event; if current button, done protecting it
+    if (s_currentButton == self) {
+        s_currentButton = nil;
     }
 }
 
@@ -377,7 +371,7 @@ static void sentinelTouchUpActionImp(id self, SEL sel, id sender)
 
 static void wrapperTouchDownActionImp(id self, SEL sel, id sender)
 {
-    if ([s_inhibitedControls containsObject:[NSValue valueWithPointer:self]]) {
+    if ([s_inhibitedButtons containsObject:[NSValue valueWithPointer:self]]) {
         return;
     }
     
@@ -392,7 +386,7 @@ static void wrapperTouchDownActionImp(id self, SEL sel, id sender)
 
 static void wrapperTouchUpActionImp(id self, SEL sel, id sender)
 {
-    if ([s_inhibitedControls containsObject:[NSValue valueWithPointer:sender]]) {
+    if ([s_inhibitedButtons containsObject:[NSValue valueWithPointer:sender]]) {
         return;
     }
     
